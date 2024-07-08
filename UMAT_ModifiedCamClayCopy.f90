@@ -224,10 +224,10 @@ contains
       real(kind = dp), intent(inout), dimension(6)  :: dEpsP
 
       ! Local variables
-      real(kind = dp)  :: xK,xG,xN1,xN2,xN3,S1,S2,S3
+      real(kind = dp)  :: xK,xG,xN1(3),xN2(3),xN3(3),S1,S2,S3
       real(kind = dp)  :: p,q,j,theta,F,dgdp,sqrt3
       real(kind = dp)  :: gtheta,result1(6),result2,dlambda,A
-      real(kind = dp), dimension(6)  :: Sigu,EpsPu,dEpsPu,dSigu
+      real(kind = dp), dimension(6)  :: Sigu,EpsPu,dSigu
       real(kind = dp), dimension(6)  :: dfdsig,dgdsig
       real(kind = dp),dimension(6,6) :: D
       integer(kind = i32) :: iOpt,counter
@@ -430,6 +430,7 @@ contains
       ! Local Variables
       real(kind = dp) :: g_theta,dfdp,dfdj,dfdtheta
       real(kind = dp) :: dgdj,dgdtheta,dets
+      real(kind = dp) :: dummy1,dummy2,dummy3,dummy4,dummy5,dummy6
       real(kind = dp), dimension(6)  :: dpdsig,djdsig,d_dets_dsig,dthetadsig
 
       g_theta = cos(theta) + ((sin(theta) * sin(xphics)) / sqrt(3.0d0))
@@ -453,6 +454,21 @@ contains
          (( 2* sig(4) * (p-sig(3)) ) + (2*sig(5)*sig(6)) ), &
          (( 2* sig(5) * (p-sig(1)) ) + (2*sig(4)*sig(6)) ), &
          (( 2* sig(6) * (p-sig(2)) ) + (2*sig(4)*sig(5)) ) ]
+
+      dummy1 = (2*sig(1))-sig(2)-sig(3)   
+      dummy2 = (2*sig(2))-sig(1)-sig(3)  
+      dummy3 = (2*sig(3))-sig(1)-sig(2)  
+      dummy4 = (2*(sig(4)**2) -(sig(5)**2) -(sig(6)**2))
+      dummy5 = (2*(sig(5)**2) -(sig(4)**2) -(sig(6)**2))
+      dummy6 = (2*(sig(6)**2) -(sig(5)**2) -(sig(4)**2))
+
+      d_dets_dsig = [ ((2/27)*dummy2*dummy3) + ((1/27)*(dummy1**2)) - (1/3)*(dummy5), &
+      ((2/27)*dummy3*dummy1) + ((1/27)*(dummy1**2)) - (1/3)*(dummy6), &
+      ((2/27)*dummy1*dummy2) + ((1/27)*(dummy1**3)) - (1/3)*(dummy4), &
+      (-(2/3)*sig(4)*dummy3) + (sig(5)*sig(6)), &
+      (-(2/3)*sig(5)*dummy1) + (sig(4)*sig(6)),&
+      (-(2/3)*sig(6)*dummy2) + (sig(5)*sig(4)) ]
+
       dets = ((sig(1)-p)*(sig(2)-p)*(sig(3)-p)) - ((sig(1)-p)*(sig(5)**2)) &
          - ((sig(2)-p)*(sig(6)**2)) - ((sig(3)-p)*(sig(4)**2)) &
          + (2*sig(4)*sig(5)*sig(6))
@@ -555,7 +571,7 @@ contains
       integer, intent(in) :: IOpt
       real(kind = dp), intent(in) :: S(6)
       real(kind = dp), intent(out) :: xN1(3), xN2(3), xN3(3),&
-         S1, S2, S3, P, Q
+         S1, S2, S3, P, Q, J, theta
 
       if (IOpt .eq. 1) then
          call Eig_3(0,S,xN1,xN2,xN3,S1,S2,S3,P,Q,J,theta) ! Calculate principal direction
@@ -565,7 +581,7 @@ contains
 
    end subroutine PrincipalSig
 
-!-------------------------------------------------------------------
+   !-------------------------------------------------------------------
    subroutine Eig_3(iOpt, St, xN1, xN2, xN3, S1, S2, S3, P, Q, &
       J, theta)
       !-------------------------------------------------------------------
@@ -640,663 +656,271 @@ contains
       ! get principal stresses and directions iteratively
       it = 0
       itmax = 50
-      do while ( (it .lt. itmax) .and.
-      &             (abs(A(1,2)) + abs(A(2,3)) + abs(A(1,3)) .gt. tol) )
+      do while ( (it .lt. itmax) .and.&  
+        (abs(A(1,2)) + abs(A(2,3)) + abs(A(1,3)) .gt. tol) )
 
-      it = it + 1
-      do k = 1,3
-
-         if (k .eq. 1) then
-            ip = 1
-            iq = 2
-         else if (k .eq.2) then
-            ip = 2
-            iq = 3
-         else
-            ip = 1
-            iq = 3
-         end if
-
-         if (abs(A(ip,iq)) .gt. 1d-50) then
-
-            tau = ( A(iq,iq) - A(ip,ip) ) / ( 2.0 * A(ip,iq) )
-            if (tau .ge. 0.0) then
-               sign_tau = 1.0
+         it = it + 1
+         do k = 1,3
+            if (k .eq. 1) then
+               ip = 1
+               iq = 2
+               else if (k .eq.2) then
+                  ip = 2
+                  iq = 3
             else
-               sign_tau = -1.0
+               ip = 1
+               iq = 3
             end if
 
-            t = sign_tau / ( abs(tau) + sqrt(1.0 + tau**2) )
-            c = 1.0 / sqrt(1.0 + t**2)
-            s = t * c
+            if (abs(A(ip,iq)) .gt. 1d-50) then
+               tau = ( A(iq,iq) - A(ip,ip) ) / ( 2.0 * A(ip,iq) )
+               if (tau .ge. 0.0) then
+                  sign_tau = 1.0
+               else
+                  sign_tau = -1.0
+               end if
 
-            temp1 = c * A(1, ip) - s * A(1, iq)
-            temp2 = c * A(2, ip) - s * A(2, iq)
-            temp3 = c * A(3, ip) - s * A(3, iq)
-            A(1, iq) = s * A(1, ip) + c * A(1, iq)
-            A(2, iq) = s * A(2, ip) + c * A(2, iq)
-            A(3, iq) = s * A(3, ip) + c * A(3, iq)
-            A(1, ip) = temp1
-            A(2, ip) = temp2
-            A(3, ip) = temp3
+               t = sign_tau / ( abs(tau) + sqrt(1.0 + tau**2) )
+               c = 1.0 / sqrt(1.0 + t**2)
+               s = t * c
 
-            temp1 = c * V(1, ip) - s * V(1, iq)
-            temp2 = c * V(2, ip) - s * V(2, iq)
-            temp3 = c * V(3, ip) - s * V(3, iq)
-            V(1, iq) = s * V(1, ip) + c * V(1, iq)
-            V(2, iq) = s * V(2, ip) + c * V(2, iq)
-            V(3, iq) = s * V(3, ip) + c * V(3, iq)
-            V(1, ip) = temp1
-            V(2, ip) = temp2
-            V(3, ip) = temp3
+               temp1 = c * A(1, ip) - s * A(1, iq)
+               temp2 = c * A(2, ip) - s * A(2, iq)
+               temp3 = c * A(3, ip) - s * A(3, iq)
+               A(1, iq) = s * A(1, ip) + c * A(1, iq)
+               A(2, iq) = s * A(2, ip) + c * A(2, iq)
+               A(3, iq) = s * A(3, ip) + c * A(3, iq)
+               A(1, ip) = temp1
+               A(2, ip) = temp2
+               A(3, ip) = temp3
 
-            temp1 = c * A(ip, 1) - s * A(iq, 1)
-            temp2 = c * A(ip, 2) - s * A(iq, 2)
-            temp3 = c * A(ip, 3) - s * A(iq, 3)
-            A(iq, 1) = s * A(ip, 1) + c * A(iq, 1)
-            A(iq, 2) = s * A(ip, 2) + c * A(iq, 2)
-            A(iq, 3) = s * A(ip, 3) + c * A(iq, 3)
-            A(ip, 1) = temp1
-            A(ip, 2) = temp2
-            A(ip, 3) = temp3
-         end if ! A(ip,iq)<>0
+               temp1 = c * V(1, ip) - s * V(1, iq)
+               temp2 = c * V(2, ip) - s * V(2, iq)
+               temp3 = c * V(3, ip) - s * V(3, iq)
+               V(1, iq) = s * V(1, ip) + c * V(1, iq)
+               V(2, iq) = s * V(2, ip) + c * V(2, iq)
+               V(3, iq) = s * V(3, ip) + c * V(3, iq)
+               V(1, ip) = temp1
+               V(2, ip) = temp2
+               V(3, ip) = temp3
+
+               temp1 = c * A(ip, 1) - s * A(iq, 1)
+               temp2 = c * A(ip, 2) - s * A(iq, 2)
+               temp3 = c * A(ip, 3) - s * A(iq, 3)
+               A(iq, 1) = s * A(ip, 1) + c * A(iq, 1)
+               A(iq, 2) = s * A(ip, 2) + c * A(iq, 2)
+               A(iq, 3) = s * A(ip, 3) + c * A(iq, 3)
+               A(ip, 1) = temp1
+               A(ip, 2) = temp2
+               A(ip, 3) = temp3
+
+            end if 
+         end do ! A(ip,iq)<>0
 
       end do ! k
 
+      ! get principal stresses from diagonal of A
+      S1 = A(1, 1)
+      S2 = A(2, 2)
+      S3 = A(3, 3)
 
+      ! derived invariants
+      P = (S1 + S2 + S3) / 3.0d0
+      Q = sqrt( ( (S1 - S2)**2 + (S2 - S3)**2 + (S3 - S1)**2 ) / 2. )
+      J = Q /sqrt(3.0d0)
+      theta = atan( (1/sqrt(3.0d0)) * ( ( (2*(S2-S3)) / (S1-S3) ) - 1. ) )
 
-   end do ! while
+      ! Sort eigenvalues S1 <= S2 <= S3
+      iS1 = 1
+      iS2 = 2
+      iS3 = 3
 
-   ! get principal stresses from diagonal of A
-   S1 = A(1, 1)
-   S2 = A(2, 2)
-   S3 = A(3, 3)
-
-   ! derived invariants
-   P = (S1 + S2 + S3) / 3.
-   Q = sqrt( ( (S1 - S2)**2 + (S2 - S3)**2 + (S3 - S1)**2 ) / 2. )
-   J = Q /sqrt(3).
-   theta = atan( (1/sqrt(3)) * ( ( (2*(S2-S3)) / (S1-S3) ) - 1. ) )
-
-   ! Sort eigenvalues S1 <= S2 <= S3
-   iS1 = 1
-   iS2 = 2
-   iS3 = 3
-
-   if (S1 .gt. S2) then
-      t   = S2
-      S2  = S1
-      S1  = t
-      it  = iS2
-      iS2 = iS1
-      iS1 = it
-   end if
-
-   if (S2 .gt. S3) then
-      t   = S3
-      S3  = S2
-      S2  = t
-      it  = iS3
-      iS3 = iS2
-      iS2 = it
-   end if
-
-   if (S1 .gt. S2) then
-      t   = S2
-      S2  = S1
-      S1  = t
-      it  = iS2
-      iS2 = iS1
-      iS1 = it
-   end if
-
-   ! get corresponding principal directions from V
-   do i = 1,3
-      xN1(i) = V(i, is1)
-      xN2(i) = V(i, is2)
-      xN3(i) = V(i, is3)
-   end do
-
-   ! optional output writing
-
-
-end subroutine Eig_3
-
-C**********************************************************************
-
-subroutine Eig_3a(iOpt, St, S1, S2, S3, P, Q)
-   !-------------------------------------------------------------------
-   !
-   !  Function: calculate principal stresses from cartesian stress vector
-   !
-   !  NB: Wim Bomhof 15/11/'01, adapted to principal stress calculation
-   !
-   !  IOpt            I   I     flag for output writing (IOpt = 1)
-   !  St              I   R()   cartesian stress (XX, YY, ZZ, XY, YZ, ZX)
-   !  S1, S2, S3      O   R     principal stress
-   !  P               O   R     isotropic stress (positive for tension)
-   !  Q               O   R     deviatoric stress
-   !
-   !-------------------------------------------------------------------
-
-   implicit none
-
-   ! arguments
-   integer, intent(in) :: IOpt
-   real(kind = dp), intent(in) :: St(6)
-   real(kind = dp), intent(out) :: S1, S2, S3, P, Q
-
-   ! local variables
-   real(kind = dp) :: A(3,3)
-   real(kind = dp) :: abs_max_s, tol
-   real(kind = dp) :: tau, sign_tau, t, c, s
-   real(kind = dp) :: temp1, temp2, temp3
-   integer :: i, k, it, itmax, ip, iq
-
-   ! Put cartesian stress vector into matrix A
-   A(1,1) = St(1) ! xx
-   A(1,2) = St(4) ! xy = yx
-   A(1,3) = St(6) ! zx = xz
-
-   A(2,1) = St(4) ! xy = yx
-   A(2,2) = St(2) ! yy
-   A(2,3) = St(5) ! zy = yz
-
-   A(3,1) = St(6) ! zx = xz
-   A(3,2) = St(5) ! zy = yz
-   A(3,3) = St(3) ! zz
-
-   ! get maximum value of cartesian stress vector
-   abs_max_s = 0.0
-   do i = 1,6
-      if (abs(St(i)) .gt. abs_max_s) abs_max_s = abs(St(i))
-   end do
-
-   ! set tolerance
-   tol = 1d-20 * abs_max_s
-
-   ! get principal stresses and directions iteratively
-   it = 0
-   itmax = 50
-   do while ( (it .lt. itmax) .and.
-   &             (abs(A(1,2)) + abs(A(2,3)) + abs(A(1,3)) .gt. tol) )
-
-   it = it + 1
-   do k = 1,3
-      if (k .eq. 1) then
-         ip = 1
-         iq = 2
-      else if (k .eq.2) then
-         ip = 2
-         iq = 3
-      else
-         ip = 1
-         iq = 3
+      if (S1 .gt. S2) then
+         t   = S2
+         S2  = S1
+         S1  = t
+         it  = iS2
+         iS2 = iS1
+         iS1 = it
       end if
 
-      if (abs(A(ip,iq)) .gt. 1d-50) then
+      if (S2 .gt. S3) then
+         t   = S3
+         S3  = S2
+         S2  = t
+         it  = iS3
+         iS3 = iS2
+         iS2 = it
+      end if
 
-         tau = ( A(iq,iq) - A(ip,ip) ) / ( 2.0 * A(ip,iq) )
-         if (tau .ge. 0.0) then
-            sign_tau = 1.0
-         else
-            sign_tau = -1.0
-         end if
+      if (S1 .gt. S2) then
+         t   = S2
+         S2  = S1
+         S1  = t
+         it  = iS2
+         iS2 = iS1
+         iS1 = it
+      end if
 
-         t = sign_tau / ( abs(tau) + sqrt(1.0 + tau**2) )
-         c = 1.0 / sqrt(1.0 + t**2)
-         s = t * c
+      ! get corresponding principal directions from V
+      do i = 1,3
+         xN1(i) = V(i, is1)
+         xN2(i) = V(i, is2)
+         xN3(i) = V(i, is3)
+      end do
 
-         temp1 = c * A(1, ip) - s * A(1, iq)
-         temp2 = c * A(2, ip) - s * A(2, iq)
-         temp3 = c * A(3, ip) - s * A(3, iq)
-         A(1, iq) = s * A(1, ip) + c * A(1, iq)
-         A(2, iq) = s * A(2, ip) + c * A(2, iq)
-         A(3, iq) = s * A(3, ip) + c * A(3, iq)
-         A(1, ip) = temp1
-         A(2, ip) = temp2
-         A(3, ip) = temp3
-
-         temp1 = c * A(ip, 1) - s * A(iq, 1)
-         temp2 = c * A(ip, 2) - s * A(iq, 2)
-         temp3 = c * A(ip, 3) - s * A(iq, 3)
-         A(iq, 1) = s * A(ip, 1) + c * A(iq, 1)
-         A(iq, 2) = s * A(ip, 2) + c * A(iq, 2)
-         A(iq, 3) = s * A(ip, 3) + c * A(iq, 3)
-         A(ip, 1) = temp1
-         A(ip, 2) = temp2
-         A(ip, 3) = temp3
-
-      end if ! A(ip,iq)<>0
-
-   end do ! k
-
-   ! optional output writing
+      ! optional output writing
 
 
-end do ! while
-
- ! get principal stresses from diagonal of A
-S1 = A(1, 1)
-S2 = A(2, 2)
-S3 = A(3, 3)
-
- ! derived invariants
-P = (S1 + S2 + S3) / 3.
-Q = sqrt( ( (S1 - S2)**2 + (S2 - S3)**2 + (S3 - S1)**2 ) / 2. )
-
- ! Sort eigenvalues S1 <= S2 <= S3
-if (S1 .gt. S2) then
-   t   = S2
-   S2  = S1
-   S1  = t
-end if
-
-if (S2 .gt. S3) then
-   t   = S3
-   S3  = S2
-   S2  = t
-end if
-
-if (S1 .gt. S2) then
-   t   = S2
-   S2  = S1
-   S1  = t
-end if
-
- ! optional output writing
+   END subroutine Eig_3
 
 
-end subroutine Eig_3a
-C************************************
+   !-------------------------------------------------------------------
+   subroutine Eig_3a(iOpt, St, S1, S2, S3, P, Q)
+      !-------------------------------------------------------------------
+      !
+      !  Function: calculate principal stresses from cartesian stress vector
+      !
+      !  NB: Wim Bomhof 15/11/'01, adapted to principal stress calculation
+      !
+      !  IOpt            I   I     flag for output writing (IOpt = 1)
+      !  St              I   R()   cartesian stress (XX, YY, ZZ, XY, YZ, ZX)
+      !  S1, S2, S3      O   R     principal stress
+      !  P               O   R     isotropic stress (positive for tension)
+      !  Q               O   R     deviatoric stress
+      !
+      !-------------------------------------------------------------------
 
+      implicit none
 
+      ! arguments
+      integer, intent(in) :: IOpt
+      real(kind = dp), intent(in) :: St(6)
+      real(kind = dp), intent(out) :: S1, S2, S3, P, Q
 
+      ! local variables
+      real(kind = dp) :: A(3,3)
+      real(kind = dp) :: abs_max_s, tol
+      real(kind = dp) :: tau, sign_tau, t, c, s
+      real(kind = dp) :: temp1, temp2, temp3
+      integer :: i, k, it, itmax, ip, iq
 
+      ! Put cartesian stress vector into matrix A
+      A(1,1) = St(1) ! xx
+      A(1,2) = St(4) ! xy = yx
+      A(1,3) = St(6) ! zx = xz
 
+      A(2,1) = St(4) ! xy = yx
+      A(2,2) = St(2) ! yy
+      A(2,3) = St(5) ! zy = yz
+
+      A(3,1) = St(6) ! zx = xz
+      A(3,2) = St(5) ! zy = yz
+      A(3,3) = St(3) ! zz
+
+      ! get maximum value of cartesian stress vector
+      abs_max_s = 0.0
+      do i = 1,6
+         if (abs(St(i)) .gt. abs_max_s) abs_max_s = abs(St(i))
+      end do
+
+      ! set tolerance
+      tol = 1d-20 * abs_max_s
+
+      ! get principal stresses and directions iteratively
+      it = 0
+      itmax = 50
+      do while ( (it .lt. itmax) .and.&     
+      (abs(A(1,2)) + abs(A(2,3)) + abs(A(1,3)) .gt. tol) )
+
+         it = it + 1
+         do k = 1,3
+            if (k .eq. 1) then
+               ip = 1
+               iq = 2
+            else if (k .eq.2) then
+               ip = 2
+               iq = 3
+            else
+               ip = 1
+               iq = 3
+            end if
+
+            if (abs(A(ip,iq)) .gt. 1d-50) then
+
+               tau = ( A(iq,iq) - A(ip,ip) ) / ( 2.0 * A(ip,iq) )
+               if (tau .ge. 0.0) then
+                  sign_tau = 1.0
+               else
+                  sign_tau = -1.0
+               end if
+
+               t = sign_tau / ( abs(tau) + sqrt(1.0 + tau**2) )
+               c = 1.0 / sqrt(1.0 + t**2)
+               s = t * c
+
+               temp1 = c * A(1, ip) - s * A(1, iq)
+               temp2 = c * A(2, ip) - s * A(2, iq)
+               temp3 = c * A(3, ip) - s * A(3, iq)
+               A(1, iq) = s * A(1, ip) + c * A(1, iq)
+               A(2, iq) = s * A(2, ip) + c * A(2, iq)
+               A(3, iq) = s * A(3, ip) + c * A(3, iq)
+               A(1, ip) = temp1
+               A(2, ip) = temp2
+               A(3, ip) = temp3
+
+               temp1 = c * A(ip, 1) - s * A(iq, 1)
+               temp2 = c * A(ip, 2) - s * A(iq, 2)
+               temp3 = c * A(ip, 3) - s * A(iq, 3)
+               A(iq, 1) = s * A(ip, 1) + c * A(iq, 1)
+               A(iq, 2) = s * A(ip, 2) + c * A(iq, 2)
+               A(iq, 3) = s * A(ip, 3) + c * A(iq, 3)
+               A(ip, 1) = temp1
+               A(ip, 2) = temp2
+               A(ip, 3) = temp3
+
+            end if ! A(ip,iq)<>0
+
+         end do ! k
+
+         ! optional output writing
+
+      end do ! while
+
+      ! get principal stresses from diagonal of A
+      S1 = A(1, 1)
+      S2 = A(2, 2)
+      S3 = A(3, 3)
+
+      ! derived invariants
+      P = (S1 + S2 + S3) / 3.
+      Q = sqrt( ( (S1 - S2)**2 + (S2 - S3)**2 + (S3 - S1)**2 ) / 2. )
+
+      ! Sort eigenvalues S1 <= S2 <= S3
+      if (S1 .gt. S2) then
+         t   = S2
+         S2  = S1
+         S1  = t
+      end if
+
+      if (S2 .gt. S3) then
+         t   = S3
+         S3  = S2
+         S2  = t
+      end if
+
+      if (S1 .gt. S2) then
+         t   = S2
+         S2  = S1
+         S1  = t
+      end if
+
+      ! optional output writing
+
+   end subroutine Eig_3a
 
 end module CamClay
 
 
 
 
-
-
-subroutine PrincipalSig(IOpt, S, xN1, xN2, xN3, S1, S2, S3,
-1  P, Q,J,theta)
-   !-------------------------------------------------------------------
-   !
-   !  Function: calculate principal stresses and directions
-   !            from cartesian stress vector
-   !
-   !  IOpt            I   I     flag to calculate principal direction (IOpt = 1)
-   !  IntGlo          I   I     global ID of Gauss point or particle
-   !  S               I   R()   cartesian stress
-   !  xN1, xN2, xN3   O   R()   principal direction
-   !  S1, S2, S3      O   R     principal stress
-   !  P               O   R     isotropic stress (positive for tension)
-   !  Q               O   R     deviatoric stress
-   !  J               O   R     sqrt J2
-   !  theta           O   R     lode angle
-   !
-   !-------------------------------------------------------------------
-
-   implicit none
-
-   ! arguments
-   integer, intent(in) :: IOpt
-   real(kind = dp), intent(in) :: S(6)
-   real(kind = dp), intent(out) :: xN1(3), xN2(3), xN3(3),
-   &                                   S1, S2, S3, P, Q
-
-   if (IOpt .eq. 1) then
-      call Eig_3(0,S,xN1,xN2,xN3,S1,S2,S3,P,Q,J,theta) ! Calculate principal direction
-   else
-      call Eig_3a(0,S,S1,S2,S3,P,Q) ! Do not calculate principal direction
-   end if
-
-end subroutine PrincipalSig
-C**********************************************************************
-subroutine Eig_3(iOpt, St, xN1, xN2, xN3, S1, S2, S3, P, Q, &
-   J, theta)
-   !-------------------------------------------------------------------
-   !
-   !  Function: calculate principal stresses and directions
-   !            from cartesian stress vector
-   !
-   !  NB: Wim Bomhof 15/11/'01, adapted to principal stress calculation
-   !
-   !  IOpt            I   I     flag for output writing (IOpt = 1)
-   !  St              I   R()   cartesian stress (XX, YY, ZZ, XY, YZ, ZX)
-   !  xN1, xN2, xN3   O   R()   principal direction
-   !  S1, S2, S3      O   R     principal stress
-   !  P               O   R     isotropic stress (positive for tension)
-   !  Q               O   R     deviatoric stress
-   !  J               O   R     sqrt J2
-   !  theta           O   R     lode angle
-   !
-   !-------------------------------------------------------------------
-
-   implicit none
-
-   ! arguments
-   integer, intent(in) :: IOpt
-   real(kind = dp), intent(in) :: St(6)
-   real(kind = dp), intent(out) :: xN1(3), xN2(3), xN3(3),
-   &                                   S1, S2, S3, P, Q, J, theta
-
-   ! local variables
-   real(kind = dp) :: A(3,3), V(3,3)
-   real(kind = dp) :: abs_max_s, tol
-   real(kind = dp) :: tau, sign_tau, t, c, s
-   real(kind = dp) :: temp1, temp2, temp3
-   integer :: i, k, it, itmax, ip, iq
-   integer :: iS1, iS2, iS3
-
-   ! Put cartesian stress vector into matrix A
-   A(1,1) = St(1) ! xx
-   A(1,2) = St(4) ! xy = yx
-   A(1,3) = St(6) ! zx = xz
-
-   A(2,1) = St(4) ! xy = yx
-   A(2,2) = St(2) ! yy
-   A(2,3) = St(5) ! zy = yz
-
-   A(3,1) = St(6) ! zx = xz
-   A(3,2) = St(5) ! zy = yz
-   A(3,3) = St(3) ! zz
-
-   ! Set V to unity matrix
-   V(1,1) = 1
-   V(2,1) = 0
-   V(3,1) = 0
-
-   V(1,2) = 0
-   V(2,2) = 1
-   V(3,2) = 0
-
-   V(1,3) = 0
-   V(2,3) = 0
-   V(3,3) = 1
-
-   ! get maximum value of cartesian stress vector
-   abs_max_s = 0.0
-   do i = 1,6
-      if (abs(St(i)) .gt. abs_max_s) abs_max_s = abs(St(i))
-   end do
-
-   ! set tolerance
-   tol = 1d-16 * abs_max_s
-
-   ! get principal stresses and directions iteratively
-   it = 0
-   itmax = 50
-   do while ( (it .lt. itmax) .and.
-   &             (abs(A(1,2)) + abs(A(2,3)) + abs(A(1,3)) .gt. tol) )
-
-   it = it + 1
-   do k = 1,3
-
-      if (k .eq. 1) then
-         ip = 1
-         iq = 2
-      else if (k .eq.2) then
-         ip = 2
-         iq = 3
-      else
-         ip = 1
-         iq = 3
-      end if
-
-      if (abs(A(ip,iq)) .gt. 1d-50) then
-
-         tau = ( A(iq,iq) - A(ip,ip) ) / ( 2.0 * A(ip,iq) )
-         if (tau .ge. 0.0) then
-            sign_tau = 1.0
-         else
-            sign_tau = -1.0
-         end if
-
-         t = sign_tau / ( abs(tau) + sqrt(1.0 + tau**2) )
-         c = 1.0 / sqrt(1.0 + t**2)
-         s = t * c
-
-         temp1 = c * A(1, ip) - s * A(1, iq)
-         temp2 = c * A(2, ip) - s * A(2, iq)
-         temp3 = c * A(3, ip) - s * A(3, iq)
-         A(1, iq) = s * A(1, ip) + c * A(1, iq)
-         A(2, iq) = s * A(2, ip) + c * A(2, iq)
-         A(3, iq) = s * A(3, ip) + c * A(3, iq)
-         A(1, ip) = temp1
-         A(2, ip) = temp2
-         A(3, ip) = temp3
-
-         temp1 = c * V(1, ip) - s * V(1, iq)
-         temp2 = c * V(2, ip) - s * V(2, iq)
-         temp3 = c * V(3, ip) - s * V(3, iq)
-         V(1, iq) = s * V(1, ip) + c * V(1, iq)
-         V(2, iq) = s * V(2, ip) + c * V(2, iq)
-         V(3, iq) = s * V(3, ip) + c * V(3, iq)
-         V(1, ip) = temp1
-         V(2, ip) = temp2
-         V(3, ip) = temp3
-
-         temp1 = c * A(ip, 1) - s * A(iq, 1)
-         temp2 = c * A(ip, 2) - s * A(iq, 2)
-         temp3 = c * A(ip, 3) - s * A(iq, 3)
-         A(iq, 1) = s * A(ip, 1) + c * A(iq, 1)
-         A(iq, 2) = s * A(ip, 2) + c * A(iq, 2)
-         A(iq, 3) = s * A(ip, 3) + c * A(iq, 3)
-         A(ip, 1) = temp1
-         A(ip, 2) = temp2
-         A(ip, 3) = temp3
-      end if ! A(ip,iq)<>0
-
-   end do ! k
-
-
-
-end do ! while
-
- ! get principal stresses from diagonal of A
-S1 = A(1, 1)
-S2 = A(2, 2)
-S3 = A(3, 3)
-
- ! derived invariants
-P = (S1 + S2 + S3) / 3.
-Q = sqrt( ( (S1 - S2)**2 + (S2 - S3)**2 + (S3 - S1)**2 ) / 2. )
-J = Q /sqrt(3).
-theta = atan( (1/sqrt(3)) * ( ( (2*(S2-S3)) / (S1-S3) ) - 1. ) )
-
- ! Sort eigenvalues S1 <= S2 <= S3
-iS1 = 1
-iS2 = 2
-iS3 = 3
-
-if (S1 .gt. S2) then
-   t   = S2
-   S2  = S1
-   S1  = t
-   it  = iS2
-   iS2 = iS1
-   iS1 = it
-end if
-
-if (S2 .gt. S3) then
-   t   = S3
-   S3  = S2
-   S2  = t
-   it  = iS3
-   iS3 = iS2
-   iS2 = it
-end if
-
-if (S1 .gt. S2) then
-   t   = S2
-   S2  = S1
-   S1  = t
-   it  = iS2
-   iS2 = iS1
-   iS1 = it
-end if
-
- ! get corresponding principal directions from V
-do i = 1,3
-   xN1(i) = V(i, is1)
-   xN2(i) = V(i, is2)
-   xN3(i) = V(i, is3)
-end do
-
- ! optional output writing
-
-
-end subroutine Eig_3
-
-C**********************************************************************
-
-subroutine Eig_3a(iOpt, St, S1, S2, S3, P, Q)
-   !-------------------------------------------------------------------
-   !
-   !  Function: calculate principal stresses from cartesian stress vector
-   !
-   !  NB: Wim Bomhof 15/11/'01, adapted to principal stress calculation
-   !
-   !  IOpt            I   I     flag for output writing (IOpt = 1)
-   !  St              I   R()   cartesian stress (XX, YY, ZZ, XY, YZ, ZX)
-   !  S1, S2, S3      O   R     principal stress
-   !  P               O   R     isotropic stress (positive for tension)
-   !  Q               O   R     deviatoric stress
-   !
-   !-------------------------------------------------------------------
-
-   implicit none
-
-   ! arguments
-   integer, intent(in) :: IOpt
-   real(kind = dp), intent(in) :: St(6)
-   real(kind = dp), intent(out) :: S1, S2, S3, P, Q
-
-   ! local variables
-   real(kind = dp) :: A(3,3)
-   real(kind = dp) :: abs_max_s, tol
-   real(kind = dp) :: tau, sign_tau, t, c, s
-   real(kind = dp) :: temp1, temp2, temp3
-   integer :: i, k, it, itmax, ip, iq
-
-   ! Put cartesian stress vector into matrix A
-   A(1,1) = St(1) ! xx
-   A(1,2) = St(4) ! xy = yx
-   A(1,3) = St(6) ! zx = xz
-
-   A(2,1) = St(4) ! xy = yx
-   A(2,2) = St(2) ! yy
-   A(2,3) = St(5) ! zy = yz
-
-   A(3,1) = St(6) ! zx = xz
-   A(3,2) = St(5) ! zy = yz
-   A(3,3) = St(3) ! zz
-
-   ! get maximum value of cartesian stress vector
-   abs_max_s = 0.0
-   do i = 1,6
-      if (abs(St(i)) .gt. abs_max_s) abs_max_s = abs(St(i))
-   end do
-
-   ! set tolerance
-   tol = 1d-20 * abs_max_s
-
-   ! get principal stresses and directions iteratively
-   it = 0
-   itmax = 50
-   do while ( (it .lt. itmax) .and.
-   &             (abs(A(1,2)) + abs(A(2,3)) + abs(A(1,3)) .gt. tol) )
-
-   it = it + 1
-   do k = 1,3
-      if (k .eq. 1) then
-         ip = 1
-         iq = 2
-      else if (k .eq.2) then
-         ip = 2
-         iq = 3
-      else
-         ip = 1
-         iq = 3
-      end if
-
-      if (abs(A(ip,iq)) .gt. 1d-50) then
-
-         tau = ( A(iq,iq) - A(ip,ip) ) / ( 2.0 * A(ip,iq) )
-         if (tau .ge. 0.0) then
-            sign_tau = 1.0
-         else
-            sign_tau = -1.0
-         end if
-
-         t = sign_tau / ( abs(tau) + sqrt(1.0 + tau**2) )
-         c = 1.0 / sqrt(1.0 + t**2)
-         s = t * c
-
-         temp1 = c * A(1, ip) - s * A(1, iq)
-         temp2 = c * A(2, ip) - s * A(2, iq)
-         temp3 = c * A(3, ip) - s * A(3, iq)
-         A(1, iq) = s * A(1, ip) + c * A(1, iq)
-         A(2, iq) = s * A(2, ip) + c * A(2, iq)
-         A(3, iq) = s * A(3, ip) + c * A(3, iq)
-         A(1, ip) = temp1
-         A(2, ip) = temp2
-         A(3, ip) = temp3
-
-         temp1 = c * A(ip, 1) - s * A(iq, 1)
-         temp2 = c * A(ip, 2) - s * A(iq, 2)
-         temp3 = c * A(ip, 3) - s * A(iq, 3)
-         A(iq, 1) = s * A(ip, 1) + c * A(iq, 1)
-         A(iq, 2) = s * A(ip, 2) + c * A(iq, 2)
-         A(iq, 3) = s * A(ip, 3) + c * A(iq, 3)
-         A(ip, 1) = temp1
-         A(ip, 2) = temp2
-         A(ip, 3) = temp3
-
-      end if ! A(ip,iq)<>0
-
-   end do ! k
-
-   ! optional output writing
-
-
-end do ! while
-
- ! get principal stresses from diagonal of A
-S1 = A(1, 1)
-S2 = A(2, 2)
-S3 = A(3, 3)
-
- ! derived invariants
-P = (S1 + S2 + S3) / 3.
-Q = sqrt( ( (S1 - S2)**2 + (S2 - S3)**2 + (S3 - S1)**2 ) / 2. )
-
- ! Sort eigenvalues S1 <= S2 <= S3
-if (S1 .gt. S2) then
-   t   = S2
-   S2  = S1
-   S1  = t
-end if
-
-if (S2 .gt. S3) then
-   t   = S3
-   S3  = S2
-   S2  = t
-end if
-
-if (S1 .gt. S2) then
-   t   = S2
-   S2  = S1
-   S1  = t
-end if
-
- ! optional output writing
-
-
-end subroutine Eig_3a
-C************************************
