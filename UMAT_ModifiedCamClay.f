@@ -16,7 +16,7 @@
      2 STRAN(NTENS),DSTRAN(NTENS),TIME(2),PREDEF(1),DPRED(1),
      3 PROPS(NPROPS),COORDS(3),DROT(3,3),DFGRD0(3,3),DFGRD1(3,3)
 
-	!Userdefined parameters
+	! Userdefined parameters
 	
       	Integer :: iounit = 0, i, ios
       	Save iounit
@@ -44,190 +44,52 @@
 	Integer :: iOpt
 	real(8) :: S1, S2, S3, xN1(3), xN2(3), xN3(3)
 	
-	
       
 	Integer :: sub
-      !   Get parameters from Props
+    ! Get parameters from Props and STATEV
       xphics = Props(1)
       xNu = Props(2)
       xkappa = Props(3)
       xlambda = Props(4)
       xe0 = Props(5)
-      
-      zeta = (xe0 + 1) / (xlambda - xkappa) !helping parameter
-
-
-      ! Calculate effective/elastic D-matrix
-      Call FormDEMCC(stress, xkappa, xNu, xe0, DDSDDE, 6, xG, xK)   ! also updates K and G
-      
-      D=DDSDDE
-      !Write(*,*) DDSDDE(1,1)
-      !Write(*,*) DDSDDE(1,2)
-      !Write(*,*) DDSDDE(5,5)
-
-      !Calculate constitutive stresses
-      Sig0=stress
-      dEps=dstran
-      call MatVec(D, 6, dEps, 6, dSig)                                ! beregner dSig-elastisk
-      call AddVec(Sig0, dSig, 1.0D0, 1.0D0, 6, Sig1)
-
-      iOpt = 1
-
-      call PrincipalSig(iOpt, Sig, xN1, xN2, xN3, S1, S2, S3, P1, Q1,  &
-          J1, THETA1)
-
-      dEpsV = dEps(1) + dEps(2) + dEps(3)                             ! volumetric strain
-
-      xJ2 = ((dEps(1) - dEps(2))**2 + 
-     &       (dEps(2) - dEps(3))**2 +
-     &       (dEps(3) - dEps(1))**2)/6. + 
-     &       ((dEps(4))**2 + (dEps(5))**2 + (dEps(6))**2)/4.
-
-      dEpsD = 2. * sqrt(xJ2 / 3.)                                      ! deviatoric strain
-      
-    ! Endrer fortegn p  p og dEpsV
-      p1 = max(-p1, 1.)
-      dEpsV = -dEpsV
-
       pp = STATEV(1)
-
-      f = yield(p1, j1, theta1, xphics)      
-      
-      
-      !Tolerances
-      SSTOL = 0.01d0 !Tolerance Relative Error (10-3 to 10-5)
-      YTOL = 1e-6 !Tolerance Error on the Yield surface (10-6 to 10-9)
-      DTmin = 0.000000001d0
-      
-      !If F<0 then the behaviour is elastic --> Return
-        if (F <= YTOL) then
-            IPL = 0
-            return
-        end if
-
-        
-      !If F>0, the behaviour is elastoplastic --> Continue
-      call rk(p,q,pp, 
-     &    zeta, phics, theta, xK, xG, 
-     &    dsubepsp, dsubepsq, 
-     &    dpMCC,dq,d5p,d5q,d_xlambda,Sig0)      
-      
-      
-      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-    ! preparing for substepping
-      T = 0.
-      dT = 1.
-	  
-      p = p0
-      q = q0
-      
-	  
-      do while (abs(1.-T)  >  1d-8)                                    ! ytterste substep
-      call stiffnessMCC(p,xe0,xkappa,xNu,xG,xK)
-
-      sub = 1
-      j = 0
-      do while ((sub == 1).and.(j < MAXITER))   ! making sure the step is accurate enough
-	    j = j + 1
-
-        ! improved substep strain increment
-	    dsubepsp = dT * dEpsV
-	    dsubepsq = dT * dEpsD
-
-	    ! RK stress estimating
-	    call rk(p,q,pp, 
-     &		    zeta, xM, phics, theta, xK, xG, 
-     & 	        dsubepsp, dsubepsq, 
-     & 	        dpMCC,dq,d5p,d5q,d_xlambda)      
-	    call error(dpMCC,dq,p,q,d5p,d5q,dT,dT_new,T,sub)
-        if (sub == 0) then 
-        T = T+dT !accept increment and advance time
-        dT = dT_new
-        else if (j == MAXITER) then !sub=1
-        T=T+dT !max number of iteration reached, accept increment and advance time
-        else !sub=1
-        dT = dT_new !update time increment
-        end if
+    ! Accumulated plastic strains
+      do i = 1,NTENS
+        EpsP(i) = STATEV(1+i) 
       end do
 
-    ! stress update
-      p = p + dpMCC
-      q = q + dq
+      zeta = (xe0 + 1) / (xlambda - xkappa) !helping parameter
 
-    ! hardening function
-      pp = pp * exp(zeta * d_xlambda * xM **2 * (2.*p - pp)) 
-      f = yield(p, q, pp, xM)
-c      write(*,*) f
-      do while (abs(f) > 1e-7)
-	    call derivatives(p, q, pp, zeta, xM, df_dp, df_dq, xA)
+    ! Calculate constitutive stresses
+      Sig=stress
+      dEps=dstran
 
-	    ddlambda = f / (df_dp**2 * xK + df_dq**2 * 3. * xG + xA)
-	    dpMCC = -ddlambda * xK * xM**2 * (2. * p - pp) 
-	    dq = -ddlambda * 6. * xG * q
-	    pp = pp * exp(zeta * ddlambda*df_dp)
-
-	    p = p + dpMCC
-	    q = q + dq
-	    f = yield(p, q, pp, xM)
-        end do
-      end do                                                          ! ytterste substep
-
-      end if                                                          ! end plastic correction
-
-    ! update state
+    ! Set tolerance for yield surface
+    ! Reccommended tolerance error (10-6 to 10-9)
+      FTOL = 1e-6   
+    
+    ! Do the predictor corrector scheme. The subroutine calculate the plastic and elastic parts and returns the updated stress and state variables
+      MaxIter = 100000
+      call implicit_predictor_corrector_integration(xkappa,XNu,&
+      xe0,dEps,xphics,FTOL,MaxIter,zeta,Sig,EpsP,dEpsP,pp)    
+      
+    ! update state variables    
       STATEV(1) = pp
+      do i = 1,NTENS
+        STATEV(1+i) = EpsP(i)
+      end do
 
     ! if (isundr  ==  1) then        Calculation of pore pressure not needed because done outside the subroutine
     !   Swp = Swp0 - BulkW*(dEpsV)
     ! end if
-
-    ! transfer stresses to cartesian
-      if (q  /=  0) then
-      S1 = P - Q / q_trial * (S1 - p1)
-      S2 = P - Q / q_trial * (S2 - p1)
-      S3 = P - Q / q_trial * (S3 - p1)
-      else
-      S1 = P
-      S2 = P
-      S3 = P
-      end if
-
-      call CarSig(-S1, -S2, -S3, xN1, xN2, xN3, Sig)
-          
-
-
-
-      !write(*,*) Sig(1)
+    
+    ! update stress   
       stress=Sig
-      ! Calculate effective/elastic D-matrix
-      P = MAX(-(stress(1)+stress(2)+stress(3))/3., 1d0)
-      xK = (xe0 + 1)/xkappa * P  !bulk modulus at start of time step, assumed constant
-      r = 3. * ( 1. - 2.*xNu) / ( 2. * (1.+xNu))
-      xG = r*xK
 
-      F1 = 2. * xG*(1.-xNu) / (1. - 2.*xNu)
-      F2 = 2. * xG * xNu / (1.-2.*xNu)
-      
-      DDSDDE = 0.0
-      DDSDDE(1:3,1:3) = F2
-      DDSDDE(1,1) = F1
-      DDSDDE(2,2) = F1
-      DDSDDE(3,3) = F1
-      DDSDDE(4,4) = xG
-      DDSDDE(5,5) = xG
-      DDSDDE(6,6) = xG
-      
+    ! Calculate effective/elastic D-matrix
+      Call FormDEMCC(stress, xkappa, xNu, xe0, DDSDDE, 6, xG, xK)   ! also updates K and G 
 
-      
-      !Write(*,*) F2
-      !Write(*,*) F1
-      !Write(*,*) xG
-
-
-
-      Return
-      End  
+    End SUBROUTINE UMAT
       
       
       Subroutine FormDEMCC(Sig0, xkappa,xNu, xe0, D, Id, xG, xK)
@@ -472,8 +334,8 @@ C***********************************************************************
 !-----------------------------------------------
 !	Subroutine with RKF45 stress estimate
 !-----------------------------------------------
-      subroutine rk(p,q,pp,
-     2		    zeta, xM,phics,theta, xK, xG,
+      subroutine rk(p,q,pp,&
+     2		 zeta, xM,phics,theta, xK, xG,
      3	            dep, deq,
      4	      	    dp,dq,dpstar,dqstar,d_xlambda)
 !---------------------------------------------------------------
@@ -991,6 +853,7 @@ C
 C
 C**** SMnew = T*SM*TT
 C
+      
       Call MatMat(SM ,3,  TT,3 , 3,3,3 ,STT,3)
       Call MatMat( T ,3, STT,3 , 3,3,3 ,SM ,3)
 !     Call MatMatSq(3, SM,  TT, STT )   ! STT = SM*TT
@@ -1446,63 +1309,89 @@ C**********************************************************************
 !-----------------------------------------------
 !	Subroutine for implicit stress estimate
 !-----------------------------------------------
-      subroutine implicit_predictor_corrector_integration(p,q,pp,
-     2		    zeta,phics,theta, xK, xG,
-     3	            dep, deq,
-     4	      	    dp,dq,Sig,EpsP,dEps,FTOL)
+      subroutine implicit_predictor_corrector_integration(xkappa,XNu,&
+        xe0,dEps,xphics,FTOL,MaxIter,zeta,Sig,EpsP,dEpsP,pp)
 !---------------------------------------------------------------
-!	input:	zeta, xM, xK, xG	material properties
-!		p,q,pp			stress state
-!		dep,deq			substep strain incr
-!     Sig:        Current stress (sig0)
-!     dEps:       Total strain increment
-!     EpsP:       Accumulated plastic strain
+!	input
+!        xkappa:     
+!           xNu:  
+!           xe0:
+!          dEps:                 
+!        xphics:                                                                            
+!          FTOL:         Tolerence on the yield surface 
+!       MaxIter:         Maximum iterations for the algorithm                      
+!          zeta:         (v / lambda + kappa)      
+!---------------------------------------------------------------
+!	input/output: 
+!            Sig:        Updated stress (Voight notation) 
+!           EpsP:        Plastic strain
+!          dEpsP:        Incremental plastic strain 
+!             pp:        State variable - preconsolidation pressure 
+!---------------------------------------------------------------
+!	output: 
+!          dEpsP:        Incremental plastic strain 
+!---------------------------------------------------------------
+!	local:	
+!           Sigu:        Local variables for calculation - Current stress 
+!          EpsPu:        Local variables for calculation - Plastic strain 
+!         dEpsPu:        Local variables for calculation - Incremental plastic strain                  
+!              D:        Elastic D Matrix        
+!             xG:        Shear Mod
+!             xK:        Bulk Mod
+!          dSigu:        Stress increment (total)
+!           iOpt:        Integer for eigen value options
+!  xN1, xN2, xN3:        Eigen directions (not used directly)
+!     S1, S2, S3:        Principal stresses
+!    p,q,j,theta:        Invariants 
+!              F:        Yield surface value        
+!        counter:        Counter for the implicit algorithm (exits if higher) 
+!           dgdp:        Derivative of plastic potential with pressure = plastic volumetric strain
+!         dfdsig:        Derivative of yield potential with current stress state (n vector)                
+!         dgdsig:        Derivative of plastic potential with current stress state (m vector)                
+!          sqrt3:        Square root of 3  
+!         gtheta:        used in 3D algorithm in yield surface instead of M                     
+!        result1:        dummy variable for calculations 
+!        result2:        dummy variable for calculations 
+!        dlambda:        Lambda dot  
+!              A:        Hardening/Softening parameter  
 
-!	output: dp,dq,d5p,d5q		stress increments RK4 and 5
-!		d_xlambda
-!
-!	local:	xT,xN
-!		dep1-6,deq1-6,dp1-6,dq1-6
 !-------------------------------------------------------------------
       implicit none
-      real(8),intent(inout) :: p,j,pp,xM,phics,theta
-      real(8), intent(in) :: zeta,deq
-      real(8), intent(in) :: xK,xG
+      ! Input variables
+      real(8),intent(in) :: xkappa,xNu,xe0,xphics,FTOL,MaxIter,zeta
+      real(8), intent(in), dimension(6)  :: dEps
       
-      real(8) :: dfdp,dfdq,xA
-      real(8) :: dlambda
-      
-      real(8) :: d_xlambda,dp,dq,dpstar,dqstar
-      real(8) :: dptemp,dqtemp
-      
-      real(8),dimension(2,7) :: dsig
-      real(8),dimension(7) :: gamma
-      real(8),dimension(6,6) :: koeff
-      
-      integer :: i,j
-      ! Local varaibles 
-      double precision, dimension(6):: dummyVec_6d, dEpsPu, EpsPu, Sigu,&
-                            dSigu, m_vec, n_vec, DE_m, DEpsPEqDPS
-      
-      double precision, dimension(3):: dummyVec_3d, DSPDPEq
-      
-      double precision, dimension(2):: dFdSP ! Derivative of the yield function with respect to the softening parameters (phi, c)
+      ! Input/Output variables
+      real(8), intent(inout), dimension(6)  :: Sig,EpsP,dEpsP
+      real(8), intent(inout)  :: pp
 
+      ! Output variables
+      real(8), intent(inout), dimension(6)  :: dEpsP
+
+      ! Local variables 
+      real(8)  :: xK,xG,xN1,xN2,xN3,S1,S2,S3
+      real(8)  :: p,q,j,theta,F,dgdp,dfdsig,dgdsig,sqrt3
+      real(8)  :: gtheta,result1,result2,dlambda,A
+      real(8), dimension(6)  :: Sigu,EpsPu,dEpsPu,dSigu
+      real(8),dimension(6,6) :: D
+      integer :: iOpt,counter
       
-      
-      
-      !Store variables for updating
+    ! Initialization  
+      DEpsP = 0.0d0
+      F = 0.0d0
+
+    !Store variables for updating
       Sigu = Sig
       EpsPu = EpsP
       
-      ! Update G,K and evaluate D
+    ! Update G,K and evaluate D
       Call FormDEMCC(Sigu, xkappa, xNu, xe0, D, 6, xG, xK)
       
       call MatVec(D, 6, dEps, 6, dSigu)                                
       Sigu = Sigu + dSigu
       
       
-      ! Calculate F for the updated Sig - find variants first
+    ! Calculate F for the updated Sig - find variants first
       iOpt = 1
       call PrincipalSig(iOpt, Sigu, xN1, xN2, xN3, S1, S2, S3, p, q, &
           j, theta)
@@ -1516,60 +1405,59 @@ C**********************************************************************
               EpsP(:) = 0
               dEpsP(:) = 0
       
-              ! Update yield surface values
+              ! Update state parameters values
               pp = pp
       
               ! Exit the subroutine
               return
       end if
       
-      ! Max number of plastic descent iterations
+    ! Max number of plastic descent iterations
       MaxIter = 100000
       counter = 0
           
       do while(abs(F) >= FTOL .and. counter <= MaxIter)
               
-          ! Calc n_vec, m_vec
+        ! Calc n_vec, m_vec
           call derivatives(Sigu,p,j,xphics,theta,dgdp,dfdsig,dgdsig)    
           
-          ! Calculate A (make function later)
-          sqrt3 = sqrt(3.0d0))
+        ! Calculate A (make function later)
+          sqrt3 = sqrt(3.0d0)
           g_theta = cos(theta) + ((sin(theta) * sin(xphics)) / sqrt3)
           g_theta = sin(xphics) / g_theta 
           A = zeta * (pp/(p**2))* (1 - (( j / (p*g_theta) )**2) )
           
-          ! n * D * m = dfdsig * D * dgdsig
+        ! n * D * m = dfdsig * D * dgdsig
           Call FormDEMCC(Sigu, xkappa, xNu, xe0, D, 6, xG, xK)
           result1 = matmul(D, dgdsig)
           result2 = dot_product(dfdsig, result1)
           
-          ! dlambda
+        ! dlambda
           dlambda = F / (result2 + A)
           
-          ! Update the stress 
+        ! Update the stress 
           Sigu = Sigu - (dlambda*result1)
           
-          ! Acc plastic strain
+        ! Acc plastic strain
           EpsPu = EpsPu + (dlambda * dgdsig)
 
-          ! Update the state parameters (pp)
+        ! Update the state parameters (pp)
           pp = pp * exp(zeta * dlambda * dgdp) 
           
-          ! Calc the yield function value
+        ! Calc the yield function value
+          iOpt = 1
           call PrincipalSig(iOpt, Sigu, xN1, xN2, xN3, S1, S2, S3, p,&
               q,j,theta)
           F = yield(p, j, pp, theta, xphics)         
           
-          ! Update the counter
+        ! Update the counter
           counter = counter + 1
                
       end do 
       
-      !Return the integrated parameters
+    ! Return the integrated parameters
       Sig = Sigu
       dEpsP = EpsPu-EpsP
       EpsP = EpsPu
-      call PrincipalSig(iOpt, Sig, xN1, xN2, xN3, S1, S2, S3, p,&
-              q,j,theta)
 
       end subroutine implicit_predictor_corrector_integration
